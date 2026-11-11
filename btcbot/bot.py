@@ -5,6 +5,7 @@ import logging
 import time as _time
 from datetime import datetime, timedelta
 
+from .ai import Explainer
 from .config import Config
 from .data import GRANULARITY, Candle, closed_candles, fetch_candles
 from .notifier import Notifier
@@ -32,7 +33,8 @@ def fmt_time(dt: datetime) -> str:
     return dt.strftime("%I:%M %p").lstrip("0")
 
 
-def format_signal(sig: Signal, slot: datetime, interval: int, today: tuple[int, int]) -> tuple[str, str, str]:
+def format_signal(sig: Signal, slot: datetime, interval: int, today: tuple[int, int],
+                  explanation: str | None = None) -> tuple[str, str, str]:
     end = slot + timedelta(minutes=interval)
     icon = {"UP": "🟢⬆️", "DOWN": "🔴⬇️", "SKIP": "⚪⏸️"}[sig.direction]
     action = {"UP": "GO UP", "DOWN": "GO DOWN", "SKIP": "SKIP"}[sig.direction]
@@ -45,7 +47,11 @@ def format_signal(sig: Signal, slot: datetime, interval: int, today: tuple[int, 
         lines.append(f"Leaning {sig.lean} but only {sig.confidence:.0f}% sure - sit this one out.")
     else:
         lines.append(f"Confidence: {sig.confidence:.0f}%")
-    lines.append("Why: " + "; ".join(sig.reasons))
+    if explanation:
+        lines.append(f"Why: {explanation}")
+        lines.append("Indicators: " + "; ".join(sig.reasons))
+    else:
+        lines.append("Why: " + "; ".join(sig.reasons))
     wins, calls = today
     if calls:
         lines.append(f"Today so far: {wins}/{calls} correct")
@@ -58,7 +64,9 @@ class Bot:
         self.cfg = cfg
         self.notifier = Notifier(cfg)
         self.tracker = Tracker(cfg.data_dir)
+        self.explainer = Explainer(cfg.ai_explanations)
         self.candles: list[Candle] = []
+        self.live_signal: Signal | None = None  # what the bot thinks right now (for the dashboard)
         self.summary_sent: set[str] = set()
         self.last_fetch = 0.0
 
@@ -66,6 +74,10 @@ class Bot:
     def refresh(self) -> None:
         self.candles = closed_candles(fetch_candles(self.cfg.product))
         self.last_fetch = _time.time()
+        try:
+            self.live_signal = analyze(self.candles, self.cfg.min_confidence)
+        except ValueError:
+            self.live_signal = None
         for r in self.tracker.resolve(self.candles):
             if r["correct"] is not None:
                 log.info("%s %s call was %s (close %.2f vs %.2f)", r["slot"], r["direction"],
@@ -86,6 +98,16 @@ class Bot:
             age = (now - slot).total_seconds()
             if SEND_DELAY <= age < STALE_AFTER and not self.tracker.has(int(slot.timestamp())):
                 return slot
+        return None
+
+    def next_alert(self, now: datetime) -> datetime | None:
+        for day_offset in range(8):
+            day = now + timedelta(days=day_offset)
+            if not self.active_day(day):
+                continue
+            for slot in slots_for_day(self.cfg, day):
+                if slot > now:
+                    return slot
         return None
 
     def seconds_until_next_event(self, now: datetime) -> float:
@@ -109,10 +131,11 @@ class Bot:
         history = [c for c in self.candles if c.start + GRANULARITY <= slot_ts]
         sig = analyze(history, self.cfg.min_confidence)
         day = slot.strftime("%Y-%m-%d")
+        explanation = self.explainer.explain(sig)
         title, body, prio = format_signal(sig, slot, self.cfg.interval_minutes,
-                                          Tracker.score(self.tracker.day_records(day)))
+                                          Tracker.score(self.tracker.day_records(day)), explanation)
         self.notifier.send(title, body, prio)
-        self.tracker.add(day, fmt_time(slot), sig)
+        self.tracker.add(day, fmt_time(slot), sig, explanation)
         return True
 
     def maybe_send_summary(self, now: datetime) -> None:
@@ -139,6 +162,10 @@ class Bot:
     # -- main loop --------------------------------------------------------
     def run(self) -> None:
         tz = self.cfg.timezone
+        if self.cfg.dashboard:
+            from .dashboard import start_dashboard
+            start_dashboard(self)
+        log.info("AI explanations: %s", "on" if self.explainer.active else "off (set ANTHROPIC_API_KEY to enable)")
         log.info("Watching %s 24/7. Alerts every %d min from %s to %s (%s). Channels: %s",
                  self.cfg.product, self.cfg.interval_minutes, self.cfg.window_start.strftime("%H:%M"),
                  self.cfg.window_end.strftime("%H:%M"), tz.key, ", ".join(self.notifier.channels) or "console only")

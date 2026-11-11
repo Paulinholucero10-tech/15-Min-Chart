@@ -8,13 +8,18 @@ it sends your phone an alert:
 Price: $97,412.55
 Candle: 9:15 AM - 9:30 AM
 Confidence: 71%
-Why: 6h trend t=+3.4; EMA9 above EMA21; MACD hist +rising; RSI 62; 3-candle move +180 (vol x1.3); price above 12h trend
+Why: Price has been climbing steadily for six hours and the last few candles closed strong on higher volume.
+Indicators: 6h trend t=+3.4; EMA9 above EMA21; MACD hist +rising; RSI 62; 3-candle move +180 (vol x1.3); price above 12h trend
 Today so far: 3/4 correct
 ```
 
 - **GO UP / GO DOWN**: the bot thinks the next 15-minute candle will close above or below the current price,
   and its confidence is at or above `MIN_CONFIDENCE` (default 60%).
 - **SKIP**: the signals are mixed or weak, so it says which way it leans and tells you to sit out.
+- **Live dashboard** in your browser (http://localhost:8080): candlestick chart with today's calls marked,
+  what the bot thinks right now, today's and all-time hit rate, and accuracy by confidence level.
+- **Plain-English explanations (optional)**: with an Anthropic API key, Claude writes the "Why" line in
+  each alert. The AI only explains; the UP/DOWN/SKIP call always comes from the indicators below.
 - At about 12:00 PM you get a **daily scorecard** with every call and whether it was right. All calls are
   saved in `data/predictions.jsonl`, so you can see the real hit rate over time.
 
@@ -57,24 +62,31 @@ confidence drops. After a sudden volatility spike, the bot always says SKIP.
    - **Telegram**: message `@BotFather` → `/newbot` → copy the token into `TELEGRAM_BOT_TOKEN`.
      Send your new bot any message, then get your chat id from `@userinfobot` → `TELEGRAM_CHAT_ID`.
    - **Discord**: Channel settings → Integrations → Webhooks → copy URL → `DISCORD_WEBHOOK_URL`.
-3. **Set your timezone** in `.env` (`TIMEZONE=America/Chicago`, `Europe/London`, `America/Sao_Paulo`, ...).
+3. *(Optional)* **AI explanations**: put an Anthropic API key (from console.anthropic.com) in
+   `ANTHROPIC_API_KEY`. It costs about a cent or two a day. Without a key, alerts list the indicators instead.
+4. **Set your timezone** in `.env` (`TIMEZONE=America/Chicago`, `Europe/London`, `America/Sao_Paulo`, ...).
    8 AM to 12 PM is measured in this timezone.
-4. **Test it:**
+5. **Test it:**
    ```bash
    python -m btcbot test-notify   # you should get a message on your phone
    python -m btcbot now           # see what the bot says right now
    python -m btcbot backtest --days 60   # how accurate would it have been?
    ```
-5. **Run it 24/7:**
+6. **Run it 24/7:**
    ```bash
    python -m btcbot run
    ```
+   Then open **http://localhost:8080** for the dashboard. To open it from your phone on the same Wi-Fi,
+   set `DASHBOARD_HOST=0.0.0.0` and visit `http://<your-computer's-IP>:8080`. Don't expose it to the
+   open internet.
 
 ## Keeping it running 24/7
 
 The bot has to run on a computer that is always on and online:
 
-- **Docker** (any server or VPS): `docker compose up -d --build`. It restarts automatically.
+- **Docker** (any server or VPS): `docker compose up -d --build`. It restarts automatically, and the
+  dashboard is on port 8080 of that machine (only reachable from the machine itself by default; use an
+  SSH tunnel `ssh -L 8080:localhost:8080 you@server` to view it).
 - **Raspberry Pi / Linux server**: use `deploy/btcbot.service` with systemd (instructions are in the file).
 - **Your own PC**: works, but alerts stop when the computer sleeps.
 - Cheap cloud options: any $4-6/month VPS (DigitalOcean, Hetzner, Lightsail) or a container host such
@@ -88,6 +100,8 @@ The bot has to run on a computer that is always on and online:
 | `WINDOW_START` / `WINDOW_END` | 08:00 / 12:00 | Alert window (end is exclusive) |
 | `INTERVAL_MINUTES` | 15 | Minutes between alerts |
 | `WEEKDAYS_ONLY` | false | Skip weekends |
+| `ANTHROPIC_API_KEY` | empty | Turns on AI-written explanations |
+| `DASHBOARD` / `DASHBOARD_PORT` / `DASHBOARD_HOST` | true / 8080 / 127.0.0.1 | Web dashboard |
 
 Use the backtest to choose `MIN_CONFIDENCE`. It prints accuracy for each confidence bucket. If higher
 confidence does not mean higher accuracy on recent data, treat the alerts as noise.

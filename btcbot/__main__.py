@@ -1,6 +1,6 @@
 """CLI entry point.
 
-  python -m btcbot run           # run 24/7 and send alerts in the window
+  python -m btcbot run           # run 24/7, send alerts in the window, serve the dashboard
   python -m btcbot now           # print the signal for the next candle right now
   python -m btcbot test-notify   # send a test message to your configured channels
   python -m btcbot backtest      # check how accurate the signals were historically
@@ -38,7 +38,7 @@ def main() -> None:
         bot = Bot(cfg)
         sig = bot.signal_now()
         slot = datetime.fromtimestamp(sig.candle_start, cfg.timezone)
-        title, body, _ = format_signal(sig, slot, cfg.interval_minutes, (0, 0))
+        title, body, _ = format_signal(sig, slot, cfg.interval_minutes, (0, 0), bot.explainer.explain(sig))
         print(f"{title}\n{body}\nVotes: {sig.votes}")
     elif args.cmd == "test-notify":
         n = Notifier(cfg)

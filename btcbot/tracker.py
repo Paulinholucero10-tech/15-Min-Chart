@@ -24,7 +24,7 @@ class Tracker:
     def has(self, candle_start: int) -> bool:
         return any(r["candle_start"] == candle_start for r in self.records)
 
-    def add(self, day: str, slot_label: str, sig: Signal) -> None:
+    def add(self, day: str, slot_label: str, sig: Signal, explanation: str | None = None) -> None:
         self.records.append({
             "day": day,
             "slot": slot_label,
@@ -33,6 +33,8 @@ class Tracker:
             "lean": sig.lean,
             "confidence": sig.confidence,
             "price": sig.price,
+            "reasons": sig.reasons,
+            "explanation": explanation,
             "outcome": None,
             "close": None,
             "correct": None,

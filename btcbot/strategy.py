@@ -17,8 +17,7 @@ from .data import Candle
 
 MIN_CANDLES = 60
 MAX_CONFIDENCE = 85.0
-DEAD_ZONE = 0.40
-GAIN = 3.0
+GAIN = 1.8
 
 WEIGHTS = {
     "trend_t": 0.25,        # is the last 6h drift statistically real, or just noise?
@@ -154,9 +153,9 @@ def analyze(candles: list[Candle], min_confidence: float = 60.0) -> Signal:
     strength = abs(score) * (0.75 + 0.25 * agreement)
 
     # Calibration: on a pure random walk the indicators still "agree" by chance, with
-    # a median strength around 0.3. Strength below DEAD_ZONE is treated as noise, so
-    # most random chop maps to 50-60% (SKIP) and clear, aligned trends reach ~70%.
-    confidence = 50 + (MAX_CONFIDENCE - 50) * _squash(max(0.0, strength - DEAD_ZONE) * GAIN)
+    # a median strength around 0.3. A cubic curve keeps that chop near 50-55% (SKIP)
+    # while clear, aligned trends climb to 60-75%. Tune with the backtest.
+    confidence = 50 + (MAX_CONFIDENCE - 50) * _squash(GAIN * strength ** 3)
     lean = "UP" if score >= 0 else "DOWN"
 
     # Volatility guard: if the last candle was a huge spike, sit out

@@ -50,6 +50,11 @@ class Config:
     ntfy_server: str = "https://ntfy.sh"
     discord_webhook: str = ""
 
+    ai_explanations: bool = False
+    dashboard: bool = True
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8080
+
     @classmethod
     def from_env(cls) -> "Config":
         load_dotenv()
@@ -69,4 +74,8 @@ class Config:
             ntfy_topic=e("NTFY_TOPIC", ""),
             ntfy_server=e("NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
             discord_webhook=e("DISCORD_WEBHOOK_URL", ""),
+            ai_explanations=bool(e("ANTHROPIC_API_KEY")) and _bool(e("AI_EXPLANATIONS", "true")),
+            dashboard=_bool(e("DASHBOARD", "true")),
+            dashboard_host=e("DASHBOARD_HOST", "127.0.0.1"),
+            dashboard_port=int(e("DASHBOARD_PORT", "8080")),
         )

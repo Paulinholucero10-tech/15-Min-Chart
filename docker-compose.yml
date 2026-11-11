@@ -2,6 +2,10 @@ services:
   btcbot:
     build: .
     env_file: .env
+    environment:
+      DASHBOARD_HOST: 0.0.0.0   # needed inside the container; the port below limits access
+    ports:
+      - "127.0.0.1:8080:8080"   # dashboard at http://localhost:8080
     volumes:
       - ./data:/app/data
     restart: unless-stopped

@@ -35,9 +35,19 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(sig.direction, "UP")
         self.assertGreaterEqual(sig.confidence, 60)
 
-    def test_downtrend_says_down(self):
-        sig = analyze(make_candles(120, drift=-15, noise=10))
-        self.assertEqual(sig.direction, "DOWN")
+    def test_downtrend_leans_down(self):
+        for seed in range(5):
+            sig = analyze(make_candles(120, drift=-15, noise=10, seed=seed))
+            self.assertEqual(sig.lean, "DOWN")
+            self.assertGreater(sig.confidence, 55)
+
+    def test_mirror_symmetry(self):
+        cs = make_candles(120, drift=15, noise=10)
+        p = 200_000
+        mirrored = [Candle(c.start, p - c.open, p - c.low, p - c.high, p - c.close, c.volume) for c in cs]
+        a, b = analyze(cs), analyze(mirrored)
+        self.assertEqual(a.confidence, b.confidence)
+        self.assertEqual({a.lean, b.lean}, {"UP", "DOWN"})
 
     def test_noise_is_skip_or_low_confidence(self):
         sig = analyze(make_candles(120, drift=0, noise=20, seed=7), min_confidence=60)
@@ -151,6 +161,63 @@ class BacktestTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DashboardTests(unittest.TestCase):
+    def test_state_and_http(self):
+        import json
+        import urllib.request
+        from btcbot.dashboard import start_dashboard
+        tz = ZoneInfo("America/New_York")
+        with tempfile.TemporaryDirectory() as d:
+            bot = Bot(Config(timezone=tz, data_dir=Path(d), dashboard_port=0))
+            bot.candles = make_candles(150, drift=10)
+            bot.live_signal = analyze(bot.candles)
+            sig = analyze(bot.candles[:-1])
+            bot.tracker.add(datetime.now(tz).strftime("%Y-%m-%d"), "8:00 AM", sig, "test reason")
+            bot.tracker.resolve(bot.candles)
+            server = start_dashboard(bot)
+            try:
+                port = server.server_address[1]
+                html = urllib.request.urlopen(f"http://127.0.0.1:{port}/").read()
+                self.assertIn(b"BTC 15-Min Bot", html)
+                state = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/api/state").read())
+            finally:
+                server.shutdown()
+            self.assertEqual(len(state["candles"]), 150)
+            self.assertEqual(state["today"][0]["explanation"], "test reason")
+            self.assertEqual(state["live"]["direction"], bot.live_signal.direction)
+            self.assertIsNotNone(state["next_alert"])
+
+
+class ExplainerTests(unittest.TestCase):
+    def test_disabled_returns_none(self):
+        from btcbot.ai import Explainer
+        self.assertIsNone(Explainer(False).explain(analyze(make_candles(100))))
+
+    def test_uses_model_text_and_falls_back(self):
+        from types import SimpleNamespace
+        from unittest import mock
+        from btcbot.ai import Explainer
+        ex = Explainer(False)
+        import anthropic
+        ex._anthropic = anthropic
+        ex.client = mock.Mock()
+        ex.client.beta.messages.create.return_value = SimpleNamespace(
+            stop_reason="end_turn", content=[SimpleNamespace(type="thinking"), SimpleNamespace(type="text", text="Trend is up.")])
+        sig = analyze(make_candles(100))
+        self.assertEqual(ex.explain(sig), "Trend is up.")
+        kwargs = ex.client.beta.messages.create.call_args.kwargs
+        self.assertEqual(kwargs["model"], "claude-opus-5-5")
+        ex.client.beta.messages.create.side_effect = anthropic.APIConnectionError(request=mock.Mock())
+        self.assertIsNone(ex.explain(sig))
+
+    def test_explanation_in_message(self):
+        sig = analyze(make_candles(120, drift=15, noise=10))
+        slot = datetime(2026, 11, 11, 9, 30, tzinfo=ZoneInfo("UTC"))
+        _, body, _ = format_signal(sig, slot, 15, (0, 0), "Buyers are in control.")
+        self.assertIn("Why: Buyers are in control.", body)
+        self.assertIn("Indicators:", body)
 
 
 class ParserTests(unittest.TestCase):
