@@ -1,6 +1,6 @@
 # 15-Min-Chart: BTC Alert Bot
 
-Watches the Bitcoin chart (15-minute candles) **24/7**. Every **15 minutes from 8:00 AM to 12:00 PM**
+Watches the Bitcoin chart (15-minute candles) **24/7**. Every **15 minutes from 8:00 AM to 2:00 PM**
 it sends your phone an alert:
 
 ```
@@ -21,7 +21,7 @@ Today so far: 3/4 correct
   what the bot thinks right now, today's and all-time hit rate, and accuracy by confidence level.
 - **Plain-English explanations (optional)**: with an Anthropic API key, Claude writes the "Why" line in
   each alert. The AI only explains; the UP/DOWN/SKIP call always comes from the indicators below.
-- At about 12:00 PM you get a **daily scorecard** with every call and whether it was right. All calls are
+- At about 2:00 PM you get a **daily scorecard** with every call and whether it was right. All calls are
   saved in `data/predictions.jsonl`, so you can see the real hit rate over time.
 
 > ⚠️ **Read this first.** No bot can reliably predict a 15-minute Bitcoin candle. Prices that short-term
@@ -91,7 +91,7 @@ confidence drops. After a sudden volatility spike, the bot always says SKIP.
 3. *(Optional)* **AI explanations**: put an Anthropic API key (from console.anthropic.com) in
    `ANTHROPIC_API_KEY`. It costs about a cent or two a day. Without a key, alerts list the indicators instead.
 4. **Set your timezone** in `.env` (`TIMEZONE=America/Chicago`, `Europe/London`, `America/Sao_Paulo`, ...).
-   8 AM to 12 PM is measured in this timezone.
+   8 AM to 2 PM is measured in this timezone.
 5. **Test it:**
    ```bash
    python -m btcbot test-notify   # you should get a message on your phone
@@ -124,7 +124,7 @@ The bot has to run on a computer that is always on and online:
 | Setting | Default | Effect |
 |---|---|---|
 | `MIN_CONFIDENCE` | 60 | Raise to 65-70 for fewer but stronger calls (more SKIPs) |
-| `WINDOW_START` / `WINDOW_END` | 08:00 / 12:00 | Alert window (end is exclusive) |
+| `WINDOW_START` / `WINDOW_END` | 08:00 / 14:00 | Alert window (end is exclusive) |
 | `INTERVAL_MINUTES` | 15 | Minutes between alerts |
 | `WEEKDAYS_ONLY` | false | Skip weekends |
 | `ADAPTIVE` | true | Learn from recent history and use its real hit rate as the confidence |

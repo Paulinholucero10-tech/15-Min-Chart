@@ -22,7 +22,7 @@ STALE_AFTER = 5 * 60   # don't send an alert more than 5 min late
 
 
 def slots_for_day(cfg: Config, day: datetime) -> list[datetime]:
-    """Alert times for a given local day, e.g. 08:00, 08:15, ... 11:45."""
+    """Alert times for a given local day, e.g. 08:00, 08:15, ... 13:45."""
     start = day.replace(hour=cfg.window_start.hour, minute=cfg.window_start.minute, second=0, microsecond=0)
     end = day.replace(hour=cfg.window_end.hour, minute=cfg.window_end.minute, second=0, microsecond=0)
     out, t = [], start

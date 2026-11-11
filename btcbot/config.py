@@ -36,7 +36,7 @@ def _bool(s: str) -> bool:
 class Config:
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo("America/New_York"))
     window_start: time = time(8, 0)
-    window_end: time = time(12, 0)  # exclusive: last alert is at 11:45 for the 11:45-12:00 candle
+    window_end: time = time(14, 0)  # exclusive: last alert is at 1:45 PM for the 1:45-2:00 candle
     interval_minutes: int = 15
     min_confidence: float = 60.0  # below this -> SKIP
     weekdays_only: bool = False
@@ -66,7 +66,7 @@ class Config:
         return cls(
             timezone=ZoneInfo(e("TIMEZONE", "America/New_York")),
             window_start=_parse_time(e("WINDOW_START", "08:00")),
-            window_end=_parse_time(e("WINDOW_END", "12:00")),
+            window_end=_parse_time(e("WINDOW_END", "14:00")),
             interval_minutes=int(e("INTERVAL_MINUTES", "15")),
             min_confidence=float(e("MIN_CONFIDENCE", "60")),
             weekdays_only=_bool(e("WEEKDAYS_ONLY", "false")),

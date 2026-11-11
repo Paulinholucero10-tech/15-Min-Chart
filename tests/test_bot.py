@@ -74,12 +74,12 @@ class ScheduleTests(unittest.TestCase):
     def setUp(self):
         self.cfg = Config(timezone=ZoneInfo("America/New_York"))
 
-    def test_sixteen_slots_8_to_12(self):
+    def test_twenty_four_slots_8_to_2pm(self):
         day = datetime(2026, 11, 11, 3, 0, tzinfo=self.cfg.timezone)
         slots = slots_for_day(self.cfg, day)
-        self.assertEqual(len(slots), 16)
+        self.assertEqual(len(slots), 24)
         self.assertEqual((slots[0].hour, slots[0].minute), (8, 0))
-        self.assertEqual((slots[-1].hour, slots[-1].minute), (11, 45))
+        self.assertEqual((slots[-1].hour, slots[-1].minute), (13, 45))
 
     def test_due_slot(self):
         with tempfile.TemporaryDirectory() as d:
@@ -88,7 +88,8 @@ class ScheduleTests(unittest.TestCase):
             tz = self.cfg.timezone
             self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 7, 59, tzinfo=tz)))
             self.assertEqual(bot.due_slot(datetime(2026, 11, 11, 8, 15, 10, tzinfo=tz)).minute, 15)
-            self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 12, 1, tzinfo=tz)))
+            self.assertEqual(bot.due_slot(datetime(2026, 11, 11, 13, 45, 10, tzinfo=tz)).hour, 13)  # last alert
+            self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 14, 1, tzinfo=tz)))
             self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 8, 10, tzinfo=tz)))  # stale
 
     def test_weekdays_only(self):
