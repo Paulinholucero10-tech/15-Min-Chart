@@ -34,6 +34,8 @@ class Tracker:
             "confidence": sig.confidence,
             "price": sig.price,
             "reasons": sig.reasons,
+            "rule_confidence": sig.rule_confidence,
+            "history": sig.history,
             "explanation": explanation,
             "outcome": None,
             "close": None,

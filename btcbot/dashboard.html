@@ -47,6 +47,8 @@
   .vtrack { height: 8px; background: var(--line); border-radius: 4px; position: relative; }
   .vfill { position: absolute; top: 0; bottom: 0; border-radius: 4px; }
   .vmid { position: absolute; left: 50%; top: -2px; bottom: -2px; width: 1px; background: var(--muted); }
+  .mstats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 6px; }
+  @media (max-width: 800px) { .mstats { grid-template-columns: 1fr 1fr; } }
   .warn { font-size: 12px; color: var(--muted); margin-top: 18px; }
   .empty { color: var(--muted); padding: 10px 0; }
   @media (max-width: 800px) {
@@ -101,6 +103,11 @@
       <h2 style="margin-top:18px">Accuracy by confidence (all time)</h2>
       <div class="bars" id="buckets"></div>
     </div>
+
+    <div class="card span4">
+      <h2>What it learned from recent history</h2>
+      <div id="model"></div>
+    </div>
   </div>
 
   <p class="warn">Short-term Bitcoin moves are close to random. The confidence is the bot's own estimate, not a guarantee. Not financial advice.</p>
@@ -140,7 +147,8 @@ function render(s) {
     const l = s.live;
     $("live").innerHTML = `<span class="pill ${l.direction}">${l.direction === "SKIP" ? "SKIP" : "GO " + l.direction}</span>
       <span class="big" style="margin-left:6px">${l.confidence.toFixed(0)}%</span>
-      <div class="muted">${l.direction === "SKIP" ? "leaning " + l.lean + ", not confident" : "for the next candle"}</div>`;
+      <div class="muted">${l.direction === "SKIP" ? "leaning " + l.lean + ", not confident" : "for the next candle"}</div>
+      ${l.history && l.history.n ? `<div class="muted">similar signals: ${l.history.wins}/${l.history.n} right (last ${l.history.days}d)</div>` : ""}`;
     $("votes").innerHTML = '<div class="votes">' + Object.entries(l.votes).map(([k, v]) => {
       const w = Math.abs(v) * 50, left = v >= 0 ? 50 : 50 - w, color = v >= 0 ? css("--up") : css("--down");
       return `<div class="vote"><span>${LABELS[k] || k}</span><div class="vtrack"><div class="vmid"></div>
@@ -148,6 +156,29 @@ function render(s) {
     }).join("") + '</div><p class="why">' + esc(l.reasons.join(" · ")) + '</p>';
   } else {
     $("live").innerHTML = '<span class="muted">Waiting for data…</span>';
+  }
+
+  const m = s.model;
+  if (m && m.ready) {
+    const ago = Math.round((Date.now() / 1000 - m.trained_at) / 60);
+    const stat = (label, v, note) => `<div><div class="muted">${label}</div><div class="big">${v == null ? "–" : v + "%"}</div><div class="muted">${note}</div></div>`;
+    const w = Object.entries(m.weights).filter(([k]) => k !== "bias");
+    const maxw = Math.max(...w.map(([, v]) => Math.abs(v)), 0.01);
+    $("model").innerHTML = `<div class="mstats">
+        ${stat("Learned model", m.oos_accuracy, "every candle, unseen data")}
+        ${stat("Fixed rules", m.rule_accuracy, "same test")}
+        ${stat("Naive guess", m.naive_accuracy, "always the common direction")}
+        ${stat(`Calls ≥ ${s.min_confidence}%`, m.calls_accuracy, m.calls_at_threshold ? `${m.calls_at_threshold} calls in the test` : "none: it would SKIP")}
+      </div>
+      <p class="muted">Learned from ${m.samples.toLocaleString()} candles (${m.days} days), tested on ${m.tested.toLocaleString()} it hadn't seen. Retrained ${ago} min ago. Best confidence it can currently justify: ${m.best_bucket}%.</p>
+      <div class="votes">` + w.map(([k, v]) => {
+        const width = Math.abs(v) / maxw * 50, left = v >= 0 ? 50 : 50 - width, color = v >= 0 ? css("--up") : css("--down");
+        return `<div class="vote"><span>${LABELS[k] || k}</span><div class="vtrack"><div class="vmid"></div>
+          <div class="vfill" style="left:${left}%;width:${width}%;background:${color}"></div></div></div>`;
+      }).join("") + `</div><p class="muted">Learned weights: green = this indicator has recently pointed the right way, red = it has recently worked backwards.</p>`;
+  } else {
+    $("model").innerHTML = `<p class="empty">${m && m.adaptive === false ? "Learning is off (ADAPTIVE=false): using fixed rules." :
+      m && m.error ? "Couldn't learn yet: " + esc(m.error) + ". Using fixed rules meanwhile." : "Learning from the last weeks of candles…"}</p>`;
   }
 
   nextAlert = s.next_alert ? new Date(s.next_alert) : null;

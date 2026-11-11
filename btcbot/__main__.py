@@ -3,7 +3,8 @@
   python -m btcbot run           # run 24/7, send alerts in the window, serve the dashboard
   python -m btcbot now           # print the signal for the next candle right now
   python -m btcbot test-notify   # send a test message to your configured channels
-  python -m btcbot backtest      # check how accurate the signals were historically
+  python -m btcbot learn         # learn from recent history and show the honest track record
+  python -m btcbot backtest      # check how accurate the fixed rules were historically
 """
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ def main() -> None:
     sub.add_parser("run")
     sub.add_parser("now")
     sub.add_parser("test-notify")
+    lp = sub.add_parser("learn")
+    lp.add_argument("--days", type=int, default=None)
     bt = sub.add_parser("backtest")
     bt.add_argument("--days", type=int, default=30)
     bt.add_argument("--csv", help="use a local CSV (start,open,high,low,close,volume) instead of downloading")
@@ -36,10 +39,22 @@ def main() -> None:
         Bot(cfg).run()
     elif args.cmd == "now":
         bot = Bot(cfg)
+        if cfg.adaptive:
+            try:
+                bot.learn()
+            except Exception as exc:
+                print(f"(Could not learn from history: {exc}; using fixed rules)")
         sig = bot.signal_now()
         slot = datetime.fromtimestamp(sig.candle_start, cfg.timezone)
         title, body, _ = format_signal(sig, slot, cfg.interval_minutes, (0, 0), bot.explainer.explain(sig))
         print(f"{title}\n{body}\nVotes: {sig.votes}")
+    elif args.cmd == "learn":
+        from .learn import report
+        if args.days:
+            cfg.learn_days = args.days
+        print(f"Downloading {cfg.learn_days} days of 15m candles and learning...")
+        model = Bot(cfg).learn()
+        print(report(model, cfg.min_confidence))
     elif args.cmd == "test-notify":
         n = Notifier(cfg)
         if not n.channels:

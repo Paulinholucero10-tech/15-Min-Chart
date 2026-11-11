@@ -97,5 +97,17 @@ def fetch_history(product: str, start: int, end: int) -> list[Candle]:
     return [out[k] for k in sorted(out)]
 
 
+def fetch_recent_history(product: str, days: int) -> list[Candle]:
+    """Last `days` of closed 15m candles: Coinbase (paged), else Kraken (max ~7.5 days)."""
+    end = int(_time.time()) // GRANULARITY * GRANULARITY
+    try:
+        candles = fetch_history(product, end - days * 86400, end)
+        if len(candles) > 500:
+            return closed_candles(candles)
+    except Exception as exc:
+        log.warning("Coinbase history failed: %s", exc)
+    return closed_candles(fetch_kraken(product))
+
+
 def _iso(ts: int) -> str:
     return _time.strftime("%Y-%m-%dT%H:%M:%SZ", _time.gmtime(ts))

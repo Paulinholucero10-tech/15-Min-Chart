@@ -9,6 +9,7 @@ Price: $97,412.55
 Candle: 9:15 AM - 9:30 AM
 Confidence: 71%
 Why: Price has been climbing steadily for six hours and the last few candles closed strong on higher volume.
+Track record: signals like this were right 187/331 times in the last 30 days
 Indicators: 6h trend t=+3.4; EMA9 above EMA21; MACD hist +rising; RSI 62; 3-candle move +180 (vol x1.3); price above 12h trend
 Today so far: 3/4 correct
 ```
@@ -29,6 +30,30 @@ Today so far: 3/4 correct
 > `python -m btcbot backtest` and watch the scorecards for a few weeks before you trade real money.
 > This is not financial advice.
 
+## How it gets its confidence (it learns from the chart)
+
+A fixed formula can't know whether Bitcoin is currently trending or chopping back and forth, so the
+bot checks itself against recent history (on by default, `ADAPTIVE=true`):
+
+1. Every 6 hours it downloads the last 30 days of 15-minute candles (~2,900).
+2. For every one of those candles it computes the same 7 indicators and records whether the next
+   candle went up or down.
+3. It **learns how much to trust each indicator** right now (a small logistic regression). In a
+   choppy market it learns that trend-following works backwards.
+4. It **tests itself only on data it didn't train on** (walk-forward), and compares against a naive
+   guess. These are the numbers on the dashboard, and from `python -m btcbot learn`.
+5. The confidence in each alert is **how often similar signals were actually right** in that test
+   ("Track record: right 187/331 times"), pulled toward 50% when there are few cases.
+
+So if the last month gave the indicators no real edge, the bot says SKIP instead of pretending.
+Expect honest numbers in the 50-60% range: that's what short-term Bitcoin really offers. If you see
+mostly SKIPs, that is the bot telling the truth. You can lower `MIN_CONFIDENCE` to 55 to get more
+calls, knowing each one is only slightly better than a coin flip.
+
+Ideas borrowed from other open-source projects: replaying every past time a setup fired
+(day-trader-skill's Time Machine), retraining on the latest data and grading its own predictions
+(coinpusher), and always comparing against a naive baseline (btc-lstm-prediction).
+
 ## How it decides
 
 On every 15-minute mark it looks at the last ~50 hours of closed 15m candles (Coinbase, falling back
@@ -44,7 +69,8 @@ to Kraken; no API key needed) and scores 7 indicators from -1 (bearish) to +1 (b
 | RSI 14 | 10% | Momentum, fades overbought/oversold extremes |
 | Last candle close | 8% | Did it close near its high (buyers) or low (sellers)? |
 
-The weighted score becomes a confidence from 50% (coin flip) to 85% (cap). If the indicators disagree,
+With learning off (or before it has finished), the weighted score becomes a confidence from 50%
+(coin flip) to 85% (cap). If the indicators disagree,
 confidence drops. After a sudden volatility spike, the bot always says SKIP.
 
 ## Setup (about 5 minutes)
@@ -69,6 +95,7 @@ confidence drops. After a sudden volatility spike, the bot always says SKIP.
 5. **Test it:**
    ```bash
    python -m btcbot test-notify   # you should get a message on your phone
+   python -m btcbot learn         # learn from the last 30 days and show the honest track record
    python -m btcbot now           # see what the bot says right now
    python -m btcbot backtest --days 60   # how accurate would it have been?
    ```
@@ -100,6 +127,8 @@ The bot has to run on a computer that is always on and online:
 | `WINDOW_START` / `WINDOW_END` | 08:00 / 12:00 | Alert window (end is exclusive) |
 | `INTERVAL_MINUTES` | 15 | Minutes between alerts |
 | `WEEKDAYS_ONLY` | false | Skip weekends |
+| `ADAPTIVE` | true | Learn from recent history and use its real hit rate as the confidence |
+| `LEARN_DAYS` / `LEARN_EVERY_HOURS` | 30 / 6 | How much history to learn from, and how often to re-learn |
 | `ANTHROPIC_API_KEY` | empty | Turns on AI-written explanations |
 | `DASHBOARD` / `DASHBOARD_PORT` / `DASHBOARD_HOST` | true / 8080 / 127.0.0.1 | Web dashboard |
 

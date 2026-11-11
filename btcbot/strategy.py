@@ -41,6 +41,10 @@ class Signal:
     votes: dict[str, float] = field(default_factory=dict)
     reasons: list[str] = field(default_factory=list)
     candle_start: int = 0   # start time of the candle being predicted
+    # Filled in by the adaptive model (learn.py) when it is active:
+    rule_confidence: float | None = None  # what the fixed rules alone said
+    p_up: float | None = None             # learned probability the candle closes higher
+    history: dict | None = None           # {"n": cases, "wins": right, "days": lookback}
 
 
 def ema(values: list[float], period: int) -> list[float]:

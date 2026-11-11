@@ -220,6 +220,69 @@ class ExplainerTests(unittest.TestCase):
         self.assertIn("Indicators:", body)
 
 
+def ar_candles(n, phi, seed=1):
+    """Synthetic market where each 15m return carries `phi` of the previous one."""
+    rnd = random.Random(seed)
+    p, r, out = 100_000.0, 0.0, []
+    for i in range(n):
+        r = phi * r + rnd.gauss(0, 60)
+        o, c = p, p + r
+        out.append(Candle(T0 + i * 900, o, max(o, c) + abs(rnd.gauss(0, 20)),
+                          min(o, c) - abs(rnd.gauss(0, 20)), c, 10 + rnd.random()))
+        p = c
+    return out
+
+
+class LearnTests(unittest.TestCase):
+    def test_logistic_recovers_signal(self):
+        from btcbot.learn import fit_logistic, predict_up
+        rnd = random.Random(0)
+        xs = [[rnd.uniform(-1, 1), rnd.uniform(-1, 1)] for _ in range(3000)]
+        ys = [int(rnd.random() < 1 / (1 + math.exp(-(2 * a)))) for a, _ in xs]
+        w = fit_logistic(xs, ys, l2=0.1)
+        self.assertGreater(w[1], 1.5)
+        self.assertLess(abs(w[2]), 0.3)
+        self.assertGreater(predict_up(w, [1, 0]), 0.8)
+
+    def test_calibration_is_monotonic_and_never_below_half(self):
+        from btcbot.learn import calibrate
+        rnd = random.Random(2)
+        st = [rnd.uniform(0.5, 0.7) for _ in range(2000)]
+        correct = [rnd.random() < s for s in st]
+        table = calibrate(st, correct)
+        accs = [r["acc"] for r in table]
+        self.assertEqual(accs, sorted(accs))
+        self.assertTrue(all(a >= 0.5 for a in accs))
+
+    def test_random_walk_learns_no_edge(self):
+        from btcbot.learn import train
+        m = train(ar_candles(2000, 0.0), days=21)
+        self.assertLess(m.stats["best_bucket"], 58)
+        sig = m.apply(analyze(ar_candles(200, 0.0, seed=5)), 60)
+        self.assertEqual(sig.direction, "SKIP")
+        self.assertIsNotNone(sig.rule_confidence)
+
+    def test_momentum_market_learns_an_edge(self):
+        from btcbot.learn import train
+        m = train(ar_candles(2900, 0.2), days=30)
+        self.assertGreater(m.stats["oos_accuracy"], 52)
+        self.assertGreater(m.stats["best_bucket"], 53)
+
+    def test_bot_uses_model_when_ready(self):
+        from btcbot.learn import train
+        with tempfile.TemporaryDirectory() as d:
+            bot = Bot(Config(data_dir=Path(d)))
+            cs = ar_candles(2000, 0.2)
+            plain = bot.score(cs[-200:])
+            self.assertIsNone(plain.history)
+            bot.model = train(cs, days=21)
+            sig = bot.score(cs[-200:])
+            self.assertIsNotNone(sig.history)
+            _, body, _ = format_signal(sig, datetime(2026, 11, 11, 9, 0, tzinfo=ZoneInfo("UTC")), 15, (0, 0))
+            if sig.history["n"]:
+                self.assertIn("Track record:", body)
+
+
 class ParserTests(unittest.TestCase):
     def _mock(self, payload):
         from unittest import mock

@@ -50,6 +50,10 @@ class Config:
     ntfy_server: str = "https://ntfy.sh"
     discord_webhook: str = ""
 
+    adaptive: bool = True          # learn from recent history and calibrate confidence
+    learn_days: int = 30
+    learn_every_hours: float = 6.0
+
     ai_explanations: bool = False
     dashboard: bool = True
     dashboard_host: str = "127.0.0.1"
@@ -74,6 +78,9 @@ class Config:
             ntfy_topic=e("NTFY_TOPIC", ""),
             ntfy_server=e("NTFY_SERVER", "https://ntfy.sh").rstrip("/"),
             discord_webhook=e("DISCORD_WEBHOOK_URL", ""),
+            adaptive=_bool(e("ADAPTIVE", "true")),
+            learn_days=int(e("LEARN_DAYS", "30")),
+            learn_every_hours=float(e("LEARN_EVERY_HOURS", "6")),
             ai_explanations=bool(e("ANTHROPIC_API_KEY")) and _bool(e("AI_EXPLANATIONS", "true")),
             dashboard=_bool(e("DASHBOARD", "true")),
             dashboard_host=e("DASHBOARD_HOST", "127.0.0.1"),

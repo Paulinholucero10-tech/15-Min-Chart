@@ -62,8 +62,11 @@ def build_state(bot: "Bot") -> dict:
                      "low": c.low, "close": c.close} for c in candles],
         "live": None if sig is None else {
             "direction": sig.direction, "lean": sig.lean, "confidence": sig.confidence,
-            "reasons": sig.reasons, "votes": sig.votes,
+            "reasons": sig.reasons, "votes": sig.votes, "history": sig.history,
+            "rule_confidence": sig.rule_confidence,
         },
+        "model": (bot.model.summary() if bot.model is not None and bot.model.ready
+                  else {"ready": False, "adaptive": cfg.adaptive, "error": bot.learn_error}),
         "today": [{**r, "chart_time": local_ts(r["candle_start"])} for r in today_recs],
         "today_score": [wins, calls],
         "all_time": [aw, ac],

@@ -5,9 +5,12 @@ import logging
 import time as _time
 from datetime import datetime, timedelta
 
+import threading
+
 from .ai import Explainer
 from .config import Config
-from .data import GRANULARITY, Candle, closed_candles, fetch_candles
+from .data import GRANULARITY, Candle, closed_candles, fetch_candles, fetch_recent_history
+from .learn import AdaptiveModel, train
 from .notifier import Notifier
 from .strategy import Signal, analyze
 from .tracker import Tracker
@@ -47,6 +50,10 @@ def format_signal(sig: Signal, slot: datetime, interval: int, today: tuple[int, 
         lines.append(f"Leaning {sig.lean} but only {sig.confidence:.0f}% sure - sit this one out.")
     else:
         lines.append(f"Confidence: {sig.confidence:.0f}%")
+    if sig.history and sig.history.get("n"):
+        h = sig.history
+        lines.append(f"Track record: signals like this were right {h['wins']}/{h['n']} times "
+                     f"in the last {h['days']} days")
     if explanation:
         lines.append(f"Why: {explanation}")
         lines.append("Indicators: " + "; ".join(sig.reasons))
@@ -67,6 +74,8 @@ class Bot:
         self.explainer = Explainer(cfg.ai_explanations)
         self.candles: list[Candle] = []
         self.live_signal: Signal | None = None  # what the bot thinks right now (for the dashboard)
+        self.model: AdaptiveModel | None = None  # learned weights + calibration, refreshed every few hours
+        self.learn_error: str | None = None
         self.summary_sent: set[str] = set()
         self.last_fetch = 0.0
 
@@ -75,7 +84,7 @@ class Bot:
         self.candles = closed_candles(fetch_candles(self.cfg.product))
         self.last_fetch = _time.time()
         try:
-            self.live_signal = analyze(self.candles, self.cfg.min_confidence)
+            self.live_signal = self.score(self.candles)
         except ValueError:
             self.live_signal = None
         for r in self.tracker.resolve(self.candles):
@@ -83,9 +92,41 @@ class Bot:
                 log.info("%s %s call was %s (close %.2f vs %.2f)", r["slot"], r["direction"],
                          "RIGHT" if r["correct"] else "WRONG", r["close"], r["price"])
 
+    def score(self, candles: list[Candle]) -> Signal:
+        """Indicator signal, then (if trained) learned weights + history-based confidence."""
+        sig = analyze(candles, self.cfg.min_confidence)
+        model = self.model
+        if model is not None and model.ready:
+            sig = model.apply(sig, self.cfg.min_confidence)
+        return sig
+
+    # -- learning ---------------------------------------------------------
+    def learn(self) -> AdaptiveModel:
+        candles = fetch_recent_history(self.cfg.product, self.cfg.learn_days)
+        days = len(candles) * GRANULARITY / 86400
+        model = train(candles, days=days, min_confidence=self.cfg.min_confidence)
+        self.model = model
+        self.learn_error = None
+        s = model.stats
+        log.info("Learned from %d days: unseen-data accuracy %.1f%% (rules %.1f%%, naive %.1f%%); "
+                 "%d calls at >=%.0f%% confidence", s["days"], s["oos_accuracy"], s["rule_accuracy"],
+                 s["naive_accuracy"], s["calls_at_threshold"], self.cfg.min_confidence)
+        return model
+
+    def _learn_loop(self) -> None:
+        while True:
+            try:
+                self.learn()
+                wait = self.cfg.learn_every_hours * 3600
+            except Exception as exc:
+                self.learn_error = str(exc)
+                log.warning("Learning from history failed (%s); using fixed rules for now", exc)
+                wait = 15 * 60
+            _time.sleep(wait)
+
     def signal_now(self) -> Signal:
         self.refresh()
-        return analyze(self.candles, self.cfg.min_confidence)
+        return self.score(self.candles)
 
     # -- scheduling -------------------------------------------------------
     def active_day(self, now: datetime) -> bool:
@@ -129,7 +170,7 @@ class Bot:
             return False
         # Only use candles that closed before the slot (in case we are a little late)
         history = [c for c in self.candles if c.start + GRANULARITY <= slot_ts]
-        sig = analyze(history, self.cfg.min_confidence)
+        sig = self.score(history)
         day = slot.strftime("%Y-%m-%d")
         explanation = self.explainer.explain(sig)
         title, body, prio = format_signal(sig, slot, self.cfg.interval_minutes,
@@ -165,6 +206,8 @@ class Bot:
         if self.cfg.dashboard:
             from .dashboard import start_dashboard
             start_dashboard(self)
+        if self.cfg.adaptive:
+            threading.Thread(target=self._learn_loop, daemon=True, name="learn").start()
         log.info("AI explanations: %s", "on" if self.explainer.active else "off (set ANTHROPIC_API_KEY to enable)")
         log.info("Watching %s 24/7. Alerts every %d min from %s to %s (%s). Channels: %s",
                  self.cfg.product, self.cfg.interval_minutes, self.cfg.window_start.strftime("%H:%M"),
