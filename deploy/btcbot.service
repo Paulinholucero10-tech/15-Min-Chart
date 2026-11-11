@@ -1,0 +1,19 @@
+# systemd unit for running the bot 24/7 on a Linux server / Raspberry Pi.
+# Edit the paths and user, then:
+#   sudo cp deploy/btcbot.service /etc/systemd/system/
+#   sudo systemctl enable --now btcbot
+#   journalctl -u btcbot -f
+[Unit]
+Description=BTC 15-minute alert bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/15-Min-Chart
+ExecStart=/home/pi/15-Min-Chart/.venv/bin/python -m btcbot run
+Restart=always
+RestartSec=15
+
+[Install]
+WantedBy=multi-user.target
