@@ -6,6 +6,7 @@ import time as _time
 from bisect import bisect_left
 from datetime import datetime
 
+from .bot import in_window
 from .config import Config
 from .data import GRANULARITY, Candle, fetch_history
 from .strategy import analyze
@@ -29,7 +30,7 @@ def evaluate(cfg: Config, candles: list[Candle]) -> list[dict]:
             continue
         local = datetime.fromtimestamp(c.start, cfg.timezone)
         t = local.time()
-        if not (cfg.window_start <= t < cfg.window_end) or local.minute % cfg.interval_minutes:
+        if not in_window(cfg, t) or local.minute % cfg.interval_minutes:
             continue
         if cfg.weekdays_only and local.weekday() >= 5:
             continue

@@ -74,11 +74,18 @@ class ScheduleTests(unittest.TestCase):
     def setUp(self):
         self.cfg = Config(timezone=ZoneInfo("America/New_York"))
 
-    def test_twenty_four_slots_8_to_2pm(self):
-        day = datetime(2026, 11, 11, 3, 0, tzinfo=self.cfg.timezone)
+    def test_72_slots_8am_to_2am_next_morning(self):
+        day = datetime(2026, 11, 11, 15, 0, tzinfo=self.cfg.timezone)
         slots = slots_for_day(self.cfg, day)
+        self.assertEqual(len(slots), 72)
+        self.assertEqual((slots[0].day, slots[0].hour, slots[0].minute), (11, 8, 0))
+        self.assertEqual((slots[-1].day, slots[-1].hour, slots[-1].minute), (12, 1, 45))
+
+    def test_daytime_window_still_works(self):
+        from datetime import time as dtime
+        self.cfg.window_end = dtime(14, 0)
+        slots = slots_for_day(self.cfg, datetime(2026, 11, 11, 3, 0, tzinfo=self.cfg.timezone))
         self.assertEqual(len(slots), 24)
-        self.assertEqual((slots[0].hour, slots[0].minute), (8, 0))
         self.assertEqual((slots[-1].hour, slots[-1].minute), (13, 45))
 
     def test_due_slot(self):
@@ -86,19 +93,64 @@ class ScheduleTests(unittest.TestCase):
             self.cfg.data_dir = Path(d)
             bot = Bot(self.cfg)
             tz = self.cfg.timezone
-            self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 7, 59, tzinfo=tz)))
-            self.assertEqual(bot.due_slot(datetime(2026, 11, 11, 8, 15, 10, tzinfo=tz)).minute, 15)
-            self.assertEqual(bot.due_slot(datetime(2026, 11, 11, 13, 45, 10, tzinfo=tz)).hour, 13)  # last alert
-            self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 14, 1, tzinfo=tz)))
-            self.assertIsNone(bot.due_slot(datetime(2026, 11, 11, 8, 10, tzinfo=tz)))  # stale
+            due = lambda *a: bot.due_slot(datetime(2026, 11, *a, tzinfo=tz))
+            self.assertIsNone(due(11, 7, 59))
+            self.assertEqual(due(11, 8, 15, 10).minute, 15)
+            self.assertEqual(due(11, 14, 0, 10).hour, 14)
+            self.assertEqual(due(11, 23, 45, 10).hour, 23)
+            self.assertEqual(due(12, 0, 0, 10).hour, 0)      # midnight
+            self.assertEqual(due(12, 1, 45, 10).hour, 1)     # last alert of the night
+            self.assertIsNone(due(12, 2, 1))                 # window over
+            self.assertIsNone(due(12, 5, 0))
+            self.assertIsNone(due(11, 8, 10))                # stale
+
+    def test_session_day_and_next_alert(self):
+        from btcbot.bot import in_window, session_day
+        from datetime import time as dtime
+        tz = self.cfg.timezone
+        self.assertEqual(session_day(self.cfg, datetime(2026, 11, 12, 1, 30, tzinfo=tz)).day, 11)
+        self.assertEqual(session_day(self.cfg, datetime(2026, 11, 12, 9, 0, tzinfo=tz)).day, 12)
+        self.assertTrue(in_window(self.cfg, dtime(0, 30)))
+        self.assertFalse(in_window(self.cfg, dtime(3, 0)))
+        with tempfile.TemporaryDirectory() as d:
+            self.cfg.data_dir = Path(d)
+            bot = Bot(self.cfg)
+            nxt = bot.next_alert(datetime(2026, 11, 12, 0, 50, tzinfo=tz))
+            self.assertEqual((nxt.day, nxt.hour, nxt.minute), (12, 1, 0))
+            nxt = bot.next_alert(datetime(2026, 11, 12, 3, 0, tzinfo=tz))
+            self.assertEqual((nxt.day, nxt.hour, nxt.minute), (12, 8, 0))
+            self.assertAlmostEqual(bot.seconds_until_next_event(datetime(2026, 11, 12, 0, 59, 30, tzinfo=tz)), 38, delta=1)
+
+    def test_night_alert_recorded_under_session_and_summary_after_2am(self):
+        tz = self.cfg.timezone
+        slot = datetime(2026, 11, 12, 1, 45, tzinfo=tz)
+        candles = make_candles(150, drift=10, start=int(slot.timestamp()) - 150 * 900)
+        with tempfile.TemporaryDirectory() as d:
+            self.cfg.data_dir = Path(d)
+            bot = Bot(self.cfg)
+            sent = []
+            bot.notifier.send = lambda t, b, p="default": sent.append(t)
+            bot.refresh = lambda: setattr(bot, "candles", candles)
+            self.assertTrue(bot.handle_slot(slot))
+            self.assertEqual(bot.tracker.records[0]["day"], "2026-11-11")
+            nxt = Candle(int(slot.timestamp()), 1, 1, 1, candles[-1].close + 5, 1)
+            bot.tracker.resolve(candles + [nxt])
+            bot.maybe_send_summary(datetime(2026, 11, 12, 1, 59, tzinfo=tz))
+            self.assertEqual(len(sent), 1)  # not yet
+            bot.maybe_send_summary(datetime(2026, 11, 12, 2, 1, tzinfo=tz))
+            self.assertIn("scorecard 2026-11-11", sent[-1])
 
     def test_weekdays_only(self):
         with tempfile.TemporaryDirectory() as d:
             self.cfg.data_dir = Path(d)
             self.cfg.weekdays_only = True
             bot = Bot(self.cfg)
-            sat = datetime(2026, 11, 14, 8, 0, 30, tzinfo=self.cfg.timezone)
-            self.assertIsNone(bot.due_slot(sat))
+            tz = self.cfg.timezone
+            self.assertIsNone(bot.due_slot(datetime(2026, 11, 14, 8, 0, 30, tzinfo=tz)))   # Saturday
+            # Friday's session still runs past midnight into Saturday morning
+            self.assertIsNotNone(bot.due_slot(datetime(2026, 11, 14, 1, 0, 30, tzinfo=tz)))
+            # ...but Sunday's late-night slots (Saturday session) don't fire
+            self.assertIsNone(bot.due_slot(datetime(2026, 11, 15, 1, 0, 30, tzinfo=tz)))
 
     def test_wait_until_next_slot(self):
         with tempfile.TemporaryDirectory() as d:
@@ -175,7 +227,9 @@ class DashboardTests(unittest.TestCase):
             bot.candles = make_candles(150, drift=10)
             bot.live_signal = analyze(bot.candles)
             sig = analyze(bot.candles[:-1])
-            bot.tracker.add(datetime.now(tz).strftime("%Y-%m-%d"), "8:00 AM", sig, "test reason")
+            from btcbot.bot import session_day
+            day = session_day(bot.cfg, datetime.now(tz)).strftime("%Y-%m-%d")
+            bot.tracker.add(day, "8:00 AM", sig, "test reason")
             bot.tracker.resolve(bot.candles)
             server = start_dashboard(bot)
             try:
@@ -210,6 +264,13 @@ class ExplainerTests(unittest.TestCase):
         self.assertEqual(ex.explain(sig), "Trend is up.")
         kwargs = ex.client.beta.messages.create.call_args.kwargs
         self.assertEqual(kwargs["model"], "claude-opus-5-5")
+        self.assertEqual(kwargs["fallbacks"], "default")
+        cheap = Explainer(False, model="claude-haiku-5-5")
+        cheap._anthropic, cheap.client = anthropic, mock.Mock()
+        cheap.client.messages.create.return_value = SimpleNamespace(
+            stop_reason="end_turn", content=[SimpleNamespace(type="text", text="Up.")])
+        self.assertEqual(cheap.explain(sig), "Up.")
+        self.assertNotIn("fallbacks", cheap.client.messages.create.call_args.kwargs)
         ex.client.beta.messages.create.side_effect = anthropic.APIConnectionError(request=mock.Mock())
         self.assertIsNone(ex.explain(sig))
 

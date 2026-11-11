@@ -17,6 +17,8 @@ from .strategy import Signal
 log = logging.getLogger(__name__)
 
 MODEL = "claude-opus-5-5"
+# Models that support server-side refusal fallbacks (Haiku does not)
+FALLBACK_MODELS = ("claude-opus-5-5", "claude-sonnet-5-5", "claude-fable-5")
 
 SYSTEM = (
     "You explain short-term Bitcoin trading signals to a non-expert. A rule-based "
@@ -58,16 +60,19 @@ class Explainer:
             f"Indicator votes (-1 bearish .. +1 bullish): {votes}."
         )
         try:
-            resp = self.client.beta.messages.create(
+            params = dict(
                 model=self.model,
                 max_tokens=2000,
                 system=SYSTEM,
                 output_config={"effort": "low"},
-                # If the request is ever declined, retry on a fallback model automatically
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
                 messages=[{"role": "user", "content": prompt}],
             )
+            if self.model.startswith(FALLBACK_MODELS):
+                # If the request is ever declined, retry on a fallback model automatically
+                resp = self.client.beta.messages.create(
+                    **params, betas=["server-side-fallback-2026-07-01"], fallbacks="default")
+            else:
+                resp = self.client.messages.create(**params)
         except anthropic.AuthenticationError:
             log.error("AI explanation disabled: invalid ANTHROPIC_API_KEY")
             self.client = None

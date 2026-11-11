@@ -36,7 +36,7 @@ def _bool(s: str) -> bool:
 class Config:
     timezone: ZoneInfo = field(default_factory=lambda: ZoneInfo("America/New_York"))
     window_start: time = time(8, 0)
-    window_end: time = time(14, 0)  # exclusive: last alert is at 1:45 PM for the 1:45-2:00 candle
+    window_end: time = time(2, 0)  # next morning (crosses midnight); exclusive: last alert 1:45 AM
     interval_minutes: int = 15
     min_confidence: float = 60.0  # below this -> SKIP
     weekdays_only: bool = False
@@ -55,6 +55,7 @@ class Config:
     learn_every_hours: float = 6.0
 
     ai_explanations: bool = False
+    ai_model: str = "claude-opus-5-5"
     dashboard: bool = True
     dashboard_host: str = "127.0.0.1"
     dashboard_port: int = 8080
@@ -66,7 +67,7 @@ class Config:
         return cls(
             timezone=ZoneInfo(e("TIMEZONE", "America/New_York")),
             window_start=_parse_time(e("WINDOW_START", "08:00")),
-            window_end=_parse_time(e("WINDOW_END", "14:00")),
+            window_end=_parse_time(e("WINDOW_END", "02:00")),
             interval_minutes=int(e("INTERVAL_MINUTES", "15")),
             min_confidence=float(e("MIN_CONFIDENCE", "60")),
             weekdays_only=_bool(e("WEEKDAYS_ONLY", "false")),
@@ -82,6 +83,7 @@ class Config:
             learn_days=int(e("LEARN_DAYS", "30")),
             learn_every_hours=float(e("LEARN_EVERY_HOURS", "6")),
             ai_explanations=bool(e("ANTHROPIC_API_KEY")) and _bool(e("AI_EXPLANATIONS", "true")),
+            ai_model=e("AI_MODEL", "claude-opus-5-5"),
             dashboard=_bool(e("DASHBOARD", "true")),
             dashboard_host=e("DASHBOARD_HOST", "127.0.0.1"),
             dashboard_port=int(e("DASHBOARD_PORT", "8080")),

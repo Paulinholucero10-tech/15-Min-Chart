@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .bot import session_day
 from .tracker import Tracker
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ def build_state(bot: "Bot") -> dict:
     now = datetime.now(tz)
     candles = list(bot.candles)[-CHART_CANDLES:]
     records = list(bot.tracker.records)
-    today = now.strftime("%Y-%m-%d")
+    today = session_day(cfg, now).strftime("%Y-%m-%d")  # current (or most recent) alert session
     today_recs = [r for r in records if r["day"] == today]
 
     def local_ts(ts: int) -> int:
